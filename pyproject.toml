@@ -1,0 +1,19 @@
+[tool.black]
+line-length = 88
+target-version = ['py312']
+skip-string-normalization = false
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+combine_as_imports = true
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "B", "C90"]  # Primary Rool such as PEP8, bugbear
+ignore = ["E501"]  # Black is doing the linting so ignore E501
+extend-ignore = []
+target-version = "py312"

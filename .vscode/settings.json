@@ -1,0 +1,23 @@
+{
+    // Python interpreter path (.venv)
+    "python.terminal.activateEnvironment": true,
+    // Code Formatter (Black)
+    // Linter (Ruff)
+    "python.formatting.provider": "black",
+    "editor.formatOnSave": true,
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+    "python.linting.flake8Enabled": false,
+    // isort import 
+    "python.sortImports.args": [
+        "--profile",
+        "black"
+    ],
+    "python-envs.pythonProjects": [
+        {
+            "path": "app",
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
+        }
+    ]
+}
