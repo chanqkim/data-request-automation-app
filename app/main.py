@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
-from app.routers import auth, menu, data_extract
+from app.routers import auth, menu, data_extraction
 
 app = FastAPI(title="Data Request Automation Portal")
 
@@ -13,7 +13,7 @@ app.include_router(menu.router)
 
 
 # Router for the page handling data extraction and automated Jira data uploads
-app.include_router(data_extract.router, prefix="/extract", tags=["Data Extraction"])
+app.include_router(data_extraction.router, tags=["Data Extraction"])
 
 
 # land to login page

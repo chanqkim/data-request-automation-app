@@ -3,6 +3,7 @@ from functools import wraps
 from fastapi.responses import RedirectResponse
 from app.core.redis_client import redis_client
 import inspect
+import json
 
 
 # checks whether user session exists
@@ -23,7 +24,11 @@ def is_logged_in(func):
             return RedirectResponse(url="/login?msg=Session+expired", status_code=302)
 
         # check if session is valid
-        user_email = redis_client.get(session_id)
+        session_value = redis_client.get(session_id)
+        if not session_value:
+            return None
+
+        user_email = json.loads(session_value).get("user_email")  # dict 변환
         print(f" is_logged_in user_email: {user_email}")
         if not user_email:
             return RedirectResponse(url="/login?msg=Session+expired", status_code=302)
