@@ -5,19 +5,40 @@ import requests
 from app.core.redis_client import redis_client
 import uuid
 from app.config import JIRA_BASE_URL, SESSION_EXPIRE_SECONDS, SESSION_COOKIE_NAME
+import json
 
 router = APIRouter()
 
 
 # create session
-def create_session(user_email: str) -> str:
+def create_session(user_email: str, jira_api_token: str) -> str:
     "add user_email to redis to create session"
 
     # create session
     session_id = str(uuid.uuid4())
-    redis_client.setex(session_id, SESSION_EXPIRE_SECONDS, user_email)
+
+    # create session data
+    session_data = {"user_email": user_email, "jira_api_token": jira_api_token}
+
+    redis_client.setex(session_id, SESSION_EXPIRE_SECONDS, json.dumps(session_data))
 
     return session_id
+
+
+# get user_email, jira api token
+def get_email_jira_token_value(session_id: str):
+    """get email, jira api token value from Redis"""
+    value = redis_client.get(session_id)
+
+    # session expired or session does not exist
+    if not value:
+        return None, None
+    session_data = json.loads(value)
+
+    email = session_data.get("user_email")
+    jira_api_token = session_data.get("jira_api_token")
+
+    return email, jira_api_token
 
 
 # land to login page
@@ -36,12 +57,12 @@ def login_page(request: Request, error: str = None):
 @router.post("/login")
 def login(
     email: str = Form(...),
-    api_token: str = Form(...),
+    jira_api_token: str = Form(...),
 ):
     # create new session using redis
-    r = requests.get(f"{JIRA_BASE_URL}/rest/api/3/myself", auth=(email, api_token))
+    r = requests.get(f"{JIRA_BASE_URL}/rest/api/3/myself", auth=(email, jira_api_token))
     if r.status_code == 200:
-        session_id = create_session(email)
+        session_id = create_session(email, jira_api_token)
         redirect_resp = RedirectResponse(url="/menu", status_code=302)
         redirect_resp.set_cookie(
             key=SESSION_COOKIE_NAME,
