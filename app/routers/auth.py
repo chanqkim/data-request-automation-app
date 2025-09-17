@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Form, Response
+from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 from app.core.templates import templates
 import requests
