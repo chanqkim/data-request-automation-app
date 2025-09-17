@@ -46,6 +46,26 @@ def def_jira_ticket_list(request):
     return issue_lists
 
 
+# approve PII data extraction jira ticket
+def approve_pii_jira_ticket():
+    pass
+
+
+# get data from query
+def get_data_from_query():
+    pass
+
+
+# encrypt query data and compress zip file
+def encrypt_and_compress_data():
+    pass
+
+
+# attach zip file to jira ticket
+def upload_file_to_jira():
+    pass
+
+
 @router.get("/data_extraction")
 @is_logged_in
 def data_extraction_page(request: Request):
