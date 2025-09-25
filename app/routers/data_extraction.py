@@ -7,8 +7,14 @@ from app.config import (
     JIRA_ADMIN_GROUP,
     JIRA_PROJECT_KEY,
     JIRA_MAX_RESULTS,
+    FILE_PATH,
 )
 import requests
+import os
+import zipfile
+import secrets
+import base64
+import pyzipper
 
 router = APIRouter()
 
@@ -124,9 +130,41 @@ def get_data_from_query():
     pass
 
 
+# create random password
+def create_random_password():
+    # Generate random 32-byte key material and encode as Base64 string
+    random_bytes = secrets.token_bytes(32)
+    random_password = base64.urlsafe_b64encode(random_bytes).decode("utf-8")
+    password_bytes = random_password.encode("utf-8")
+    return password_bytes
+
+
 # encrypt query data and compress zip file
-def encrypt_and_compress_data():
-    pass
+def encrypt_and_compress_data(file_name):
+    # decide output path
+    output_zip_dir = os.path.join(FILE_PATH, os.path.splitext(file_name)[0] + ".zip")
+
+    # create password
+    password = create_random_password()
+
+    # read the input file (for single-file use)
+    with open(FILE_PATH + file_name, "rb") as f:
+        file_data = f.read()
+
+    # create AES-encrypted zip (WZ_AES -> AES encryption in ZIP)
+    # compression uses DEFLATED; encryption uses AES (stronger than legacy ZipCrypto)
+    with pyzipper.AESZipFile(
+        output_zip_dir,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        encryption=pyzipper.WZ_AES,
+    ) as zf:
+        zf.setpassword(password)  # set password (bytes)
+        # write the file into the archive; the archive entry will be encrypted
+        zf.writestr(os.path.basename(file_name), file_data)
+
+    # return the password string so the caller can save/transmit it securely
+    return password
 
 
 # attach zip file to jira ticket
