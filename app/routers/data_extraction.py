@@ -15,6 +15,7 @@ import zipfile
 import secrets
 import base64
 import pyzipper
+from jira import JIRA, JIRAError
 
 router = APIRouter()
 
@@ -168,6 +169,8 @@ def encrypt_and_compress_data(file_name):
 
 
 # attach zip file to jira ticket
+
+
 def upload_file_to_jira(
     jira_email: str,
     jira_api_token: str,
@@ -184,31 +187,39 @@ def upload_file_to_jira(
         dict: API response JSON or error message 또는 에러 메시지
     """
 
-    # Jira REST API endpoint
-    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{ticket_no}/attachments"
+    jira = JIRA(server=JIRA_BASE_URL, basic_auth=(jira_email, jira_api_token))
 
-    # 파일 존재 여부 확인
+    issue = jira.issue(ticket_no)
+
     if not os.path.exists(file_path):
         return {"error": f"File not found: {file_path}"}
 
-    headers = {
-        "X-Atlassian-Token": "no-check",  # header for file-uplolad
-    }
+    try:
+        with open(file_path, "rb") as f:
+            jira.add_attachment(
+                issue=issue, attachment=f, filename=os.path.basename(file_path)
+            )
 
-    # get email, jira_api-token from session_id
-    auth = (jira_email, jira_api_token)
+        # adding additional comments in the ticket
+        comment_text = (
+            f"✅ Jira ticket **{ticket_no}** has been successfully delivered.\n\n"
+            f"If you encounter any issues or discrepancies in the extracted data, "
+            f"please contact **{jira_email}**."
+        )
 
-    with open(file_path, "rb") as f:
-        files = {"file": (os.path.basename(file_path), f)}
-        response = requests.post(url, headers=headers, files=files, auth=auth)
+        jira.add_comment(issue, comment_text)
+        print(f"📎 File '{file_path}' attached successfully to {ticket_no}")
 
-    if response.status_code == 200 or response.status_code == 201:
-        return {"message": "File uploaded successfully", "response": response.json()}
-    else:
-        return {
-            "error": f"Failed to upload file. Status code: {response.status_code}",
-            "details": response.text,
-        }
+        return {"status": "success", "file": os.path.basename(file_path)}
+
+    except JIRAError as e:
+        # JIRAError 는 HTTP 응답코드, 텍스트 등을 포함
+        print(f"❌ Jira API error while attaching file: {e.status_code} - {e.text}")
+        return {"status": "error", "code": e.status_code, "details": e.text}
+
+    except Exception as e:
+        print(f"⚠️ Unexpected error: {e}")
+        return {"status": "error", "details": str(e)}
 
 
 @router.get("/data_extraction")
