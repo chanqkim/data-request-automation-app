@@ -168,8 +168,47 @@ def encrypt_and_compress_data(file_name):
 
 
 # attach zip file to jira ticket
-def upload_file_to_jira():
-    pass
+def upload_file_to_jira(
+    jira_email: str,
+    jira_api_token: str,
+    file_path: str,
+    ticket_no: str,
+):
+    """
+    adding extracted file to jira ticket
+
+    Args:
+        file_path (str): extracted file dir
+        ticket_no (str): jira issue key
+    Returns:
+        dict: API response JSON or error message 또는 에러 메시지
+    """
+
+    # Jira REST API endpoint
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{ticket_no}/attachments"
+
+    # 파일 존재 여부 확인
+    if not os.path.exists(file_path):
+        return {"error": f"File not found: {file_path}"}
+
+    headers = {
+        "X-Atlassian-Token": "no-check",  # header for file-uplolad
+    }
+
+    # get email, jira_api-token from session_id
+    auth = (jira_email, jira_api_token)
+
+    with open(file_path, "rb") as f:
+        files = {"file": (os.path.basename(file_path), f)}
+        response = requests.post(url, headers=headers, files=files, auth=auth)
+
+    if response.status_code == 200 or response.status_code == 201:
+        return {"message": "File uploaded successfully", "response": response.json()}
+    else:
+        return {
+            "error": f"Failed to upload file. Status code: {response.status_code}",
+            "details": response.text,
+        }
 
 
 @router.get("/data_extraction")
