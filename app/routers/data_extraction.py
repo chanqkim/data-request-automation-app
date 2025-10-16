@@ -8,6 +8,7 @@ from app.config import (
     JIRA_PROJECT_KEY,
     JIRA_MAX_RESULTS,
     FILE_PATH,
+    SLACK_WEBHOOK_URL,
 )
 import requests
 import os
@@ -16,6 +17,7 @@ import secrets
 import base64
 import pyzipper
 from jira import JIRA, JIRAError
+import json
 
 router = APIRouter()
 
@@ -126,6 +128,30 @@ def approve_pii_jira_ticket(request, ticket_id):
     # if login user is in the admin_email_list, approve the jira ticket
 
 
+# send slack message
+def send_slack_message(
+    webhook_url, message, username="Data Bot", icon_emoji=":robot_face:"
+):
+    payload = {
+        "username": username,
+        "icon_emoji": icon_emoji,
+        "text": message,
+    }
+
+    response = requests.post(
+        webhook_url,
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    )
+
+    if response.status_code == 200:
+        print("✅ Slack message sent successfully!")
+    else:
+        print(
+            f"❌ Failed to send message. Status: {response.status_code}, Response: {response.text}"
+        )
+
+
 # get data from query
 def get_data_from_query():
     pass
@@ -209,6 +235,9 @@ def upload_file_to_jira(
 
         jira.add_comment(issue, comment_text)
         print(f"📎 File '{file_path}' attached successfully to {ticket_no}")
+
+        # sending message bia slack
+        send_slack_message(SLACK_WEBHOOK_URL, comment_text)
 
         return {"status": "success", "file": os.path.basename(file_path)}
 
