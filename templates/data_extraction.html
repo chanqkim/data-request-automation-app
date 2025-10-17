@@ -56,14 +56,14 @@
                 <td>{{ ticket.key }}</td>
                 <td>{{ ticket.summary }}</td>
                 <td>{{ ticket.status }}</td>
-                <!-- <td>
+                <td>
                     <form method="post" action="/approve/{{ ticket.key }}" style="display:inline;">
                         <button type="submit" class="approve-btn">Extraction Approval</button>
                     </form>
                     <form method="post" action="/extract/{{ ticket.key }}" style="display:inline;">
                         <button type="submit" class="extract-btn">Data Extraction</button>
                     </form>
-                </td> -->
+                </td>
             </tr>
             {% endfor %}
         </tbody>
