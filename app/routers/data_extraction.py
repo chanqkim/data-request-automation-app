@@ -24,42 +24,36 @@ router = APIRouter()
 
 # get Jira data request ticket list
 def def_jira_ticket_list(request):
-    # Jira authenthication
-    url = f"{JIRA_BASE_URL}/rest/api/3/search"
-    query = {
-        "jql": f"project={JIRA_PROJECT_KEY} ORDER BY created DESC",
-        "maxResults": JIRA_MAX_RESULTS,
-    }
-    session_id = request.cookies.get("session_id")
-    email, jira_api_token = get_email_jira_token_value(session_id)
-    auth = (email, jira_api_token)
-    headers = {"Accept": "application/json"}
+    try:
+        # Jira authenthication
+        session_id = request.cookies.get("session_id")
+        email, jira_api_token = get_email_jira_token_value(session_id)
+        jira = JIRA(server=JIRA_BASE_URL, basic_auth=(email, jira_api_token))
 
-    response = requests.get(url, headers=headers, params=query, auth=auth)
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=f"❌ Jira API Error: {response.status_code}, {response.text}",
+        # JQL for getting jira issues where data-requests involve PII data
+        jql_query = (
+            f"project={JIRA_PROJECT_KEY} and 'PII_YN' = 'Y' ORDER BY created DESC"
         )
 
-    # get jira ticket lists
-    raw_issues = response.json().get("issues", [])
+        # Search for issues(tickets) (add maxResults)
+        issues = jira.search_issues(jql_str=jql_query, maxResults=JIRA_MAX_RESULTS)
 
-    # parse ticket lists and return list to data_extraction.html
-    issue_lists = []
-    for issue in raw_issues:
-        try:
-            key = issue.get("key", "")
-            fields = issue.get("fields", {})
-            summary = fields.get("summary", "")
-            status = fields.get("status", {}).get("name", "")
+        # 5️⃣ 결과 파싱
+        issue_lists = []
+        for issue in issues:
+            issue_lists.append(
+                {
+                    "key": issue.key,
+                    "summary": issue.fields.summary,
+                    "status": issue.fields.status.name,
+                }
+            )
 
-            issue_lists.append({"key": key, "summary": summary, "status": status})
-        except Exception as e:
-            print(f"Failed to parse issue {issue.get('key')}: {e}")
+        return issue_lists
 
-    return issue_lists
+    except Exception as e:
+        print(f"❌ Jira API Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Jira issues: {e}")
 
 
 # check whether ticket has pii info
@@ -105,7 +99,18 @@ def is_jira_admin(email, jira_api_token) -> bool:
 
 
 # approve PII data extraction jira ticket
-def approve_pii_jira_ticket(request, ticket_id):
+@router.post("/approve/{ticket_id}")
+async def approve_pii_jira_ticket(request, ticket_id):
+    """
+    Approve ticket by changing ticket status from Request Submission -> Request Approval
+
+    Args:
+        request (str): web request
+        ticket_id (str): jira issue key
+    Returns:
+        dict: API response JSON or error message
+    """
+
     session_id = request.cookies.get("session_id")
     email, jira_api_token = get_email_jira_token_value(session_id)
 
@@ -125,7 +130,46 @@ def approve_pii_jira_ticket(request, ticket_id):
             detail="User does not have Jira Admin privileges",
         )
 
+    # create jira instance
+    jira = JIRA(server=JIRA_BASE_URL, basic_auth=(email, jira_api_token))
+
     # if login user is in the admin_email_list, approve the jira ticket
+    # get ticket object
+    issue = jira.issue(ticket_id)
+
+    # check transition
+    transitions = jira.transitions(issue)
+    transition_name = "Approve Data Extraction Request"  # Jira status name for tickets that has been approved for data extraction
+
+    transition_id = None
+    for t in transitions:
+        if t["name"].lower() == transition_name.lower():
+            transition_id = t["id"]
+            break
+
+    # raise error if transition_id for transation_name does not exist
+    if not transition_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transition '{transition_name}' not available for ticket {ticket_id}.",
+        )
+
+    # change ticket status for To-Do -> Request Approved
+    jira.transition_issue(issue, transition_id)
+    print(f"✅ Ticket {ticket_id} successfully transitioned via '{transition_name}'.")
+
+    # Add request approval comment
+    comment_text = (
+        f"✅ Ticket {ticket_id} has been approved for PII extraction by {email}."
+    )
+    jira.add_comment(issue, comment_text)
+
+    # Add request approval comment via slack
+    send_slack_message(SLACK_WEBHOOK_URL, comment_text)
+
+    return {
+        "message": f"Ticket {ticket_id} transitioned to 'Approved' and comment added."
+    }
 
 
 # send slack message
