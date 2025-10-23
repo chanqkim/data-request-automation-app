@@ -25,6 +25,7 @@ ALLOW_LOCAL_INFILE = True
 FILE_PATH = os.getenv("FILE_PATH", "file_path/")
 SAMPLE_NUM_USERS = 1000000
 CHUNK_SIZE = 100000
+SAMPLE_DATA_PATH = "data/users.csv"
 
 # slack
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "secret")
