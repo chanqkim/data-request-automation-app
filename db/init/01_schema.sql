@@ -1,4 +1,4 @@
--- users 테이블 DDL
+-- sample users table DDL
 CREATE TABLE IF NOT EXISTS users (
     user_id BIGINT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     birth_date DATE,
     country VARCHAR(50),
     city VARCHAR(50),
-    language VARCHAR(10),
+    languages VARCHAR(10),
     is_active BOOLEAN DEFAULT TRUE,
     user_role VARCHAR(20) DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
