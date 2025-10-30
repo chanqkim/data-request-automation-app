@@ -10,6 +10,8 @@ services:
       - "8000:8000"
     environment:
       REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ./app/logs:/app/logs # save logfiles to host machine
     depends_on:
       - redis
       - mysql

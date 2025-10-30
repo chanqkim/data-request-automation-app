@@ -9,6 +9,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
 COPY templates/ templates/
 
-# Run fastapi server with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Create log directory and set permissions
+RUN mkdir -p /app/logs && \
+    groupadd -r app && useradd -r -g app app && \
+    chown -R app:app /app/logs /app
+
+# create app user and run container with app user
+USER app
+CMD ["sh", "-c", "chown -R app:app /app/logs && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 

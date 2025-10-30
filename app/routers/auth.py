@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import RedirectResponse
-from app.core.templates import templates
-import requests
-from app.core.redis_client import redis_client
-import uuid
-from app.config import JIRA_BASE_URL, SESSION_EXPIRE_SECONDS, SESSION_COOKIE_NAME
 import json
+import uuid
+
+import requests
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import RedirectResponse
+
+from app.config import JIRA_BASE_URL, SESSION_COOKIE_NAME, SESSION_EXPIRE_SECONDS
+from app.core.logger import logger
+from app.core.redis_client import redis_client
+from app.core.templates import templates
 
 router = APIRouter()
 
@@ -19,7 +22,7 @@ def create_session(user_email: str, jira_api_token: str) -> str:
 
     # create session data
     session_data = {"user_email": user_email, "jira_api_token": jira_api_token}
-
+    logger.info(f"Creating session for user: {user_email}, session_id: {session_id}")
     redis_client.setex(session_id, SESSION_EXPIRE_SECONDS, json.dumps(session_data))
 
     return session_id
@@ -32,6 +35,7 @@ def get_email_jira_token_value(session_id: str):
 
     # session expired or session does not exist
     if not value:
+        logger.info(f"{session_id} not in redis")
         return None, None
     session_data = json.loads(value)
 
@@ -48,9 +52,11 @@ def login_page(request: Request, error: str = None):
     session_id = request.cookies.get(SESSION_COOKIE_NAME)
     if session_id and redis_client.get(session_id):
         return RedirectResponse(url="/menu", status_code=302)
-    return templates.TemplateResponse(
-        "login.html", {"request": request, "error": error}
-    )
+    else:
+        logger.info("session_id does not exist or session has expired")
+        return templates.TemplateResponse(
+            "login.html", {"request": request, "error": error}
+        )
 
 
 # login using redis as session
@@ -59,8 +65,8 @@ def login(
     email: str = Form(...),
     jira_api_token: str = Form(...),
 ):
-    # create new session using redis
     r = requests.get(f"{JIRA_BASE_URL}/rest/api/3/myself", auth=(email, jira_api_token))
+
     if r.status_code == 200:
         session_id = create_session(email, jira_api_token)
         redirect_resp = RedirectResponse(url="/menu", status_code=302)
@@ -80,8 +86,19 @@ def login(
 @router.get("/logout")
 def logout(request: Request):
     session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    user_email = "Unknown user"
     if session_id:
-        redis_client.delete(session_id)  # Redis에서도 세션 삭제
-    response = RedirectResponse(url="/login", status_code=302)
+        user_data = redis_client.get(session_id)
+        if user_data:
+            data_dict = json.loads(user_data)
+            user_email = data_dict.get("user_email")
+        redis_client.delete(session_id)  # delete redis session
+
+    # add logout message
+    message = f"{user_email} has logged out"
+    logger.info(message)
+    response = templates.TemplateResponse(
+        "login.html", {"request": request, "message": message}
+    )
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response

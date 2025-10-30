@@ -80,6 +80,17 @@
             <input type="password" id="jira_api_token" name="jira_api_token" placeholder="Jira API Token" required>
 
             <button type="submit">Login</button>
+            {% if error %}
+            <script>
+                alert("{{ error }}");
+            </script>
+            {% endif %}
+
+            {% if message %}
+            <script>
+                alert("{{ message }}");
+            </script>
+            {% endif %}
         </form>
     </div>
 </body>
