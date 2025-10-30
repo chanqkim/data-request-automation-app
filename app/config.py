@@ -29,3 +29,11 @@ SAMPLE_DATA_PATH = "data/users.csv"
 
 # slack
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "secret")
+
+# logging configuration
+LOG_DIR = "/app/logs"
+LOG_FILE_NAME = "app.log"
+LOG_FORMATER = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+LOG_LEVEL = "INFO"
+LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
+LOG_FILE_BACKUP_COUNT = 30  # keep 30 backup log files (1 month)
