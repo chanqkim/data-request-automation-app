@@ -10,7 +10,7 @@
             display: flex;
         }
 
-        /* 좌측 사이드바 */
+        /* left sidebar */
         .sidebar {
             height: 100vh;
             width: 200px;
@@ -34,7 +34,7 @@
             border-radius: 4px;
         }
 
-        /* 메인 컨텐츠 */
+        /* main contents */
         .main-content {
             margin-left: 220px;
             padding: 20px;
@@ -76,14 +76,14 @@
             color: white;
         }
 
-        /* 로딩 표시 */
+        /* shows loading */
         #loading {
             text-align: center;
             padding: 10px;
             display: none;
         }
 
-        /* 상태 컬러 표시 */
+        /* status color display */
         .status.Todo {
             color: orange;
             font-weight: bold;
@@ -102,17 +102,17 @@
 </head>
 
 <body>
-    <!-- 좌측 사이드바 -->
+    <!-- left sidebar -->
     <div class="sidebar">
         <a href="/data_extraction">Data Extraction</a>
         <a href="/logout">Logout</a>
     </div>
 
-    <!-- 메인 컨텐츠 -->
+    <!-- main contents -->
     <div class="main-content">
         <h1 style="text-align:center;">Jira Ticket List</h1>
 
-        <!-- 총 티켓 수 표시 -->
+        <!-- total ticket counts -->
         <p>Total Tickets: {{ total_issues }}</p>
 
         <table>
@@ -139,7 +139,7 @@
                 {% endfor %}
             </tbody>
         </table>
-
+        <!-- add pagination-->
         <div class="pagination" style="text-align:center; margin-top:20px;">
             {% if current_page > 1 %}
             <a
