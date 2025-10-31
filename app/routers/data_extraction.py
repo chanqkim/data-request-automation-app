@@ -1,59 +1,144 @@
-from fastapi import APIRouter, Request, HTTPException
-from app.core.templates import templates
-from app.core.decorators import is_logged_in
-from app.routers.auth import get_email_jira_token_value
+import base64
+import json
+import os
+import secrets
+import zipfile
+from math import ceil
+
+import pandas as pd
+import pyzipper
+import requests
+from fastapi import APIRouter, HTTPException, Request
+from jira import JIRA, JIRAError
+from pandas import DataFrame
+
 from app.config import (
-    JIRA_BASE_URL,
-    JIRA_ADMIN_GROUP,
-    JIRA_PROJECT_KEY,
-    JIRA_MAX_RESULTS,
     FILE_PATH,
+    JIRA_ADMIN_GROUP,
+    JIRA_BASE_URL,
+    JIRA_MAX_RESULTS,
+    JIRA_PROJECT_KEY,
+    JIRA_TICKETS_PER_PAGE,
     SLACK_WEBHOOK_URL,
 )
-import requests
-import os
-import zipfile
-import secrets
-import base64
-import pyzipper
-from jira import JIRA, JIRAError
-import json
+from app.core.decorators import is_logged_in
+from app.core.templates import templates
+from app.routers.auth import get_email_jira_token_value
 
 router = APIRouter()
 
 
-# get Jira data request ticket list
-def def_jira_ticket_list(request):
+def get_jira_object(request: str) -> JIRA:
+    """
+    return Jira object that is used to approve data extraction, download file, attach file
+
+    Args:
+        request (str): web request
+    Returns:
+        jira object
+    Raises:
+        ValueError: if session_id is missing or Jira authentication fails
+    """
+
     try:
-        # Jira authenthication
+        # get jira authetntication info from session
+        session_id = request.cookies.get("session_id")
+        if not session_id:
+            raise ValueError("No session_id found in request cookies.")
+
+        jira_email, jira_api_token = get_email_jira_token_value(session_id)
+        if not jira_email or not jira_api_token:
+            raise ValueError("Could not retrieve Jira email or API token from session.")
+
+        # Connect to Jira
+        jira = JIRA(server=JIRA_BASE_URL, basic_auth=(jira_email, jira_api_token))
+        return jira
+
+    except JIRAError as e:
+        # Jira server connection fail / authentication fail
+        raise ConnectionError(f"Failed to connect to Jira: {e.text}") from e
+    except HTTPException as e:
+        # Network error
+        raise ConnectionError(
+            f"Network error while connecting to Jira: {str(e)}"
+        ) from e
+    except Exception as e:
+        # other exceptions
+        raise RuntimeError(
+            f"Unexpected error while initializing Jira client: {str(e)}"
+        ) from e
+
+
+# get Jira data request ticket list
+def def_jira_ticket_list(request: Request, next_page_token: str | None = None):
+    try:
         session_id = request.cookies.get("session_id")
         email, jira_api_token = get_email_jira_token_value(session_id)
         jira = JIRA(server=JIRA_BASE_URL, basic_auth=(email, jira_api_token))
 
-        # JQL for getting jira issues where data-requests involve PII data
-        jql_query = (
-            f"project={JIRA_PROJECT_KEY} and 'PII_YN' = 'Y' ORDER BY created DESC"
-        )
+        jql_query = f"project={JIRA_PROJECT_KEY} and 'PII_YN'='Y' ORDER BY created DESC"
 
-        # Search for issues(tickets) (add maxResults)
-        issues = jira.search_issues(jql_str=jql_query, maxResults=JIRA_MAX_RESULTS)
+        # get total ticket counts
+        total_issues = jira.search_issues(jql_str=jql_query, maxResults=0).total
+        total_pages = ceil(total_issues / JIRA_TICKETS_PER_PAGE)
 
-        # 5️⃣ 결과 파싱
-        issue_lists = []
-        for issue in issues:
-            issue_lists.append(
-                {
-                    "key": issue.key,
-                    "summary": issue.fields.summary,
-                    "status": issue.fields.status.name,
-                }
-            )
+        # use enhanced_search_issues to get nextPageToken
+        kwargs = {"jql_str": jql_query, "maxResults": JIRA_TICKETS_PER_PAGE}
+        if next_page_token:
+            kwargs["nextPageToken"] = next_page_token
 
-        return issue_lists
+        result = jira.enhanced_search_issues(**kwargs)
+        issues = list(result)
+        next_token = getattr(result, "nextPageToken", None)
+
+        # prepare issue list object for response
+        issue_lists = [
+            {
+                "key": issue.key,
+                "summary": issue.fields.summary,
+                "status": issue.fields.status.name,
+            }
+            for issue in issues
+        ]
+
+        # calculate current page
+        if next_page_token:
+            current_page = int(request.query_params.get("page", 1))
+        else:
+            current_page = 1
+
+        return {
+            "issues": issue_lists,
+            "next_page_token": next_token or "",
+            "current_page": current_page,
+            "total_issues": total_issues,
+            "total_pages": total_pages,
+        }
 
     except Exception as e:
         print(f"❌ Jira API Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch Jira issues: {e}")
+
+
+# render data extraction page using pagination
+@router.get("/data_extraction")
+def data_extraction_page(
+    request: Request, next_page_token: str | None = None, page: int = 1
+):
+    # get paginated jira ticket list
+    jira_data = def_jira_ticket_list(request, next_page_token)
+
+    return templates.TemplateResponse(
+        "data_extraction.html",
+        {
+            "request": request,
+            "tickets": jira_data["issues"],
+            "current_page": page,
+            "total_pages": jira_data["total_pages"],
+            "total_issues": jira_data["total_issues"],
+            "next_page_token": jira_data["next_page_token"],
+        },
+    )
 
 
 # check whether ticket has pii info
@@ -131,8 +216,8 @@ async def approve_pii_jira_ticket(request, ticket_id):
         )
 
     # create jira instance
-    jira = JIRA(server=JIRA_BASE_URL, basic_auth=(email, jira_api_token))
-
+    # jira = JIRA(server=JIRA_BASE_URL, basic_auth=(email, jira_api_token))
+    jira = get_jira_object(request)
     # if login user is in the admin_email_list, approve the jira ticket
     # get ticket object
     issue = jira.issue(ticket_id)
@@ -196,9 +281,46 @@ def send_slack_message(
         )
 
 
+# get data attached in Jira ticket
+async def get_jira_ticket_attached_data(jira: JIRA, ticket_no: str):
+    """
+    add save file attached to the Jira ticket
+    """
+
+    # create dir to download files attached in jira
+    os.makedirs(FILE_PATH, exist_ok=True)
+    issue = jira.issue(ticket_no)
+    attachment_paths = []
+
+    for attachment in issue.fields.attachment:
+        local_path = os.path.join(FILE_PATH, attachment.filename)
+
+        # us Jira library to get files in binary
+        file_content = attachment.get()  # bytes
+
+        with open(local_path, "wb") as f:
+            f.write(file_content)
+
+        attachment_paths.append(local_path)
+
+    return attachment_paths
+
+
 # get data from query
-def get_data_from_query():
-    pass
+def get_data_from_query(jira: JIRA, ticket_no: str, df: DataFrame) -> DataFrame:
+    """
+    add PII_data that matches DataFrame
+    """
+
+    # get file_lists that was attached in jira ticket
+    attached_files_list = get_jira_ticket_attached_data(jira, ticket_no)
+
+    # extract data if files exist
+    if len(attached_files_list) > 0:
+        # use loop to open file
+        for file in attached_files_list:
+            file_df = pd.read_csv(DataFrame)
+    return file_df
 
 
 # create random password
@@ -239,8 +361,6 @@ def encrypt_and_compress_data(file_name):
 
 
 # attach zip file to jira ticket
-
-
 def upload_file_to_jira(
     jira_email: str,
     jira_api_token: str,
