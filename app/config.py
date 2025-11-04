@@ -23,7 +23,7 @@ MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "data_request")
 ALLOW_LOCAL_INFILE = True
 
 # file related
-FILE_PATH = os.getenv("FILE_PATH", "file_path/")
+FILE_PATH = "/app/file_path/"
 SAMPLE_NUM_USERS = 1000000
 CHUNK_SIZE = 100000
 SAMPLE_DATA_PATH = "data/users.csv"
