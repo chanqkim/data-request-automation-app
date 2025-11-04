@@ -9,12 +9,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
 COPY templates/ templates/
 
-# Create log directory and set permissions
-RUN mkdir -p /app/logs && \
-    groupadd -r app && useradd -r -g app app && \
-    chown -R app:app /app/logs /app
+# Create log and file-export directory and set permissions
+RUN groupadd -r app \
+    && useradd --no-log-init -r -g app app \
+    && mkdir -p /app/logs /app/export_file_path \
+    && chown -R app:app /app
 
 # create app user and run container with app user
 USER app
-CMD ["sh", "-c", "chown -R app:app /app/logs && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "chown -R app:app /app/logs /app/export_file_path && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 
