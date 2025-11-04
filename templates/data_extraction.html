@@ -124,15 +124,21 @@
                     <th>Actions</th>
                 </tr>
             </thead>
+
             <tbody id="ticket-table-body">
                 {% for ticket in tickets %}
                 <tr>
                     <td>{{ ticket.key }}</td>
                     <td>{{ ticket.summary }}</td>
                     <td class="status {{ ticket.status|replace(' ', '') }}">{{ ticket.status }}</td>
+
                     <td>
                         <form method="post" action="/approve/{{ ticket.key }}" style="display:inline;">
                             <button type="submit" class="approve-btn">Extraction Approval</button>
+                        </form>
+
+                        <form method="post" action="/extract/{{ ticket.key }}" style="display:inline;">
+                            <button type="suvmit" class="extract-btn">Submit</button>
                         </form>
                     </td>
                 </tr>
