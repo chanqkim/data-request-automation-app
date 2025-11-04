@@ -10,18 +10,19 @@ import pyzipper
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from jira import JIRA, JIRAError
-from pandas import DataFrame
 
 from app.config import (
+    CHUNK_SIZE,
     FILE_PATH,
     JIRA_ADMIN_GROUP,
     JIRA_BASE_URL,
-    JIRA_MAX_RESULTS,
     JIRA_PROJECT_KEY,
     JIRA_TICKETS_PER_PAGE,
     SLACK_WEBHOOK_URL,
 )
+from app.core.db_connection import get_db_connection
 from app.core.decorators import is_logged_in
+from app.core.logger import logger
 from app.core.templates import templates
 from app.routers.auth import get_email_jira_token_value
 
@@ -116,7 +117,7 @@ def def_jira_ticket_list(request: Request, next_page_token: str | None = None):
         }
 
     except Exception as e:
-        print(f"❌ Jira API Error: {e}")
+        logger.error(f"❌ Jira API Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch Jira issues: {e}")
 
 
@@ -181,6 +182,48 @@ def is_jira_admin(email, jira_api_token) -> bool:
     ]
 
     return email in admin_email_list
+
+
+# fix column names to normalize user_id column
+def normalize_user_id_column(df: pd.DataFrame) -> pd.DataFrame:
+    # normalize column names in original df
+    normalized_cols = {col: col.strip().lower() for col in df.columns}
+    df = df.rename(columns=normalized_cols)
+
+    # column name candidates that needs to be fixed to user_id
+    candidates = [
+        "User ID",
+        "user id",
+        "id",
+        "USER_ID",
+        "UserId",
+        "userid",
+        "User Name",
+        "user name",
+        "user_name",
+    ]
+
+    # check existing columns and rename if matches
+    for col in df.columns:
+        if col in candidates:
+            df.rename(columns={col: "username"})
+
+    # return original df
+    return df
+
+
+# get pii data from users table by username list
+def fetch_users_by_user_ids(username_list: list, conn) -> pd.DataFrame:
+    """
+    Get PII-related user data efficiently from MySQL Users table
+    """
+    query = """
+        SELECT username, email, gender
+        FROM users
+        WHERE username IN %(username_list)s
+    """
+
+    return pd.read_sql(query, conn, params={"username_list": tuple(username_list)})
 
 
 # approve PII data extraction jira ticket
@@ -274,9 +317,9 @@ def send_slack_message(
     )
 
     if response.status_code == 200:
-        print("✅ Slack message sent successfully!")
+        logger.info("✅ Slack message sent successfully!")
     else:
-        print(
+        logger.error(
             f"❌ Failed to send message. Status: {response.status_code}, Response: {response.text}"
         )
 
@@ -307,20 +350,98 @@ async def get_jira_ticket_attached_data(jira: JIRA, ticket_no: str):
 
 
 # get data from query
-def get_data_from_query(jira: JIRA, ticket_no: str, df: DataFrame) -> DataFrame:
+@router.post("/extract/{ticket_key}", response_model=None)
+async def get_data_from_query(request: Request, ticket_key: str):
     """
     add PII_data that matches DataFrame
     """
-
+    jira = get_jira_object(request)
     # get file_lists that was attached in jira ticket
-    attached_files_list = get_jira_ticket_attached_data(jira, ticket_no)
+    attached_files_list = await get_jira_ticket_attached_data(jira, ticket_key)
 
     # extract data if files exist
     if len(attached_files_list) > 0:
+        conn = get_db_connection()
+
         # use loop to open file
         for file in attached_files_list:
-            file_df = pd.read_csv(DataFrame)
-    return file_df
+            file_lower = str(file).lower()
+            file_name = file.split("/")[-1].split(".")[0]
+            logger.info(f"Processing file: {file_name}")
+            # check file extension and read file accordingly
+            try:
+                # CSV
+                if file_lower.endswith(".csv"):
+                    file_df = pd.read_csv(file)
+
+                # Excel (xlsx, xls)
+                elif file_lower.endswith(".xlsx") or file_lower.endswith(".xls"):
+                    file_df = pd.read_excel(file)
+
+                # fix column names
+                file_df = normalize_user_id_column(file_df).dropna(subset=["username"])
+                logger.info(
+                    f"normalized {file_name} columns, columns: {file_df.columns}"
+                )
+
+                # create final file path
+                final_file_path = f"/file_path/{ticket_key}"
+                if not os.path.isdir(final_file_path):
+                    os.makedirs(final_file_path, exist_ok=True)
+                logger.info(f"created extraction file dir: {final_file_path}")
+
+                first_write = True  # check first write for append mode
+                # divide dataframe into chunks to avoid memory issues
+                logger.info(f"dividing {file_name} into chunks of size {CHUNK_SIZE}")
+                for i in range(0, len(file_df), CHUNK_SIZE):
+                    chunk_file_df = file_df.iloc[i : i + CHUNK_SIZE]
+
+                    # get unique usernames in chunk
+                    chunk_usernames = chunk_file_df["username"].unique().tolist()
+
+                    # fetch pii data from db
+                    db_data_chunk = fetch_users_by_user_ids(chunk_usernames, conn)
+
+                    # merge chunk file df with db data
+                    merged_df = chunk_file_df.merge(
+                        db_data_chunk, on="username", how="left"
+                    )
+
+                    save_file_name = f"{final_file_path}/{file_name}.csv"
+                    merged_df.to_csv(
+                        save_file_name,
+                        index=False,
+                        append=not first_write,
+                    )
+                    first_write = False  # after first loop append data
+                logger.info(f"saved extracted data to {save_file_name}")
+
+            except Exception as e:
+                logger.error(
+                    f"Error reading file {file}: {e}, expected format CSV or Excel."
+                )
+
+        # compress and encrypt file
+        logger.info(f"compressing and encrypting extracted files in {final_file_path}")
+
+        compressed_file_path, password = encrypt_and_compress_files(
+            final_file_path, ticket_key
+        )
+        logger.info(f"data compressed to {compressed_file_path}")
+
+        upload_file_to_jira(jira, compressed_file_path, ticket_key)
+        logger.info(f"attached compress data to jira ticket {ticket_key}")
+
+        # send slack message
+        comment_text = (
+            f"✅ Jira ticket **{ticket_key}** has been successfully delivered.\n\n"
+            f"The extracted data is encrypted for security. "
+            f"Please use the following password to access the data: `{password}`\n\n"
+            f"If you encounter any issues or discrepancies in the extracted data, "
+            f"please contact **Data Team**."
+        )
+        send_slack_message(SLACK_WEBHOOK_URL, comment_text)
+        logger.info(f"sent slack message for ticket {ticket_key}")
 
 
 # create random password
@@ -333,37 +454,52 @@ def create_random_password():
 
 
 # encrypt query data and compress zip file
-def encrypt_and_compress_data(file_name):
-    # decide output path
-    output_zip_dir = os.path.join(FILE_PATH, os.path.splitext(file_name)[0] + ".zip")
+def encrypt_and_compress_files(final_file_path: str, ticket_no: str) -> list[str, str]:
+    """
+    Encrypt and compress all files inside a directory (no subfolder recursion).
+    Files are added flat into a single AES-encrypted zip.
 
-    # create password
+    Args:
+        directory_path (str): Directory containing the files.
+        zip_name (str): Output zip filename. Default: "files.zip"
+
+    Returns:
+       [output_zip_path, password]: path to created zip + generated password.
+    """
+
+    # set Password
     password = create_random_password()
 
-    # read the input file (for single-file use)
-    with open(FILE_PATH + file_name, "rb") as f:
-        file_data = f.read()
+    # zip output path
+    compressed_file_path = os.path.join(final_file_path, f"{ticket_no}.zip")
 
-    # create AES-encrypted zip (WZ_AES -> AES encryption in ZIP)
-    # compression uses DEFLATED; encryption uses AES (stronger than legacy ZipCrypto)
     with pyzipper.AESZipFile(
-        output_zip_dir,
+        compressed_file_path,
         "w",
         compression=zipfile.ZIP_DEFLATED,
         encryption=pyzipper.WZ_AES,
     ) as zf:
-        zf.setpassword(password)  # set password (bytes)
-        # write the file into the archive; the archive entry will be encrypted
-        zf.writestr(os.path.basename(file_name), file_data)
+        zf.setpassword(password)
 
-    # return the password string so the caller can save/transmit it securely
-    return password
+        # iterate through only files in final_file_path
+        for file in os.listdir(final_file_path):
+            full_path = os.path.join(final_file_path, file)
+
+            # skip the zip file itself (re-run safety)
+            if full_path == compressed_file_path:
+                continue
+
+            # include only files, no directories
+            if os.path.isfile(full_path):
+                with open(full_path, "rb") as f:
+                    zf.writestr(file, f.read())  # Store plain filename
+
+    return compressed_file_path, password
 
 
 # attach zip file to jira ticket
 def upload_file_to_jira(
-    jira_email: str,
-    jira_api_token: str,
+    jira: JIRA,
     file_path: str,
     ticket_no: str,
 ):
@@ -377,28 +513,21 @@ def upload_file_to_jira(
         dict: API response JSON or error message 또는 에러 메시지
     """
 
-    jira = JIRA(server=JIRA_BASE_URL, basic_auth=(jira_email, jira_api_token))
-
-    issue = jira.issue(ticket_no)
-
-    if not os.path.exists(file_path):
-        return {"error": f"File not found: {file_path}"}
-
     try:
         with open(file_path, "rb") as f:
             jira.add_attachment(
-                issue=issue, attachment=f, filename=os.path.basename(file_path)
+                issue=ticket_no, attachment=f, filename=os.path.basename(file_path)
             )
 
         # adding additional comments in the ticket
         comment_text = (
             f"✅ Jira ticket **{ticket_no}** has been successfully delivered.\n\n"
             f"If you encounter any issues or discrepancies in the extracted data, "
-            f"please contact **{jira_email}**."
+            f"please contact **Data team**."
         )
 
-        jira.add_comment(issue, comment_text)
-        print(f"📎 File '{file_path}' attached successfully to {ticket_no}")
+        jira.add_comment(ticket_no, comment_text)
+        logger.info(f"📎 File '{file_path}' attached successfully to {ticket_no}")
 
         # sending message bia slack
         send_slack_message(SLACK_WEBHOOK_URL, comment_text)
@@ -406,12 +535,13 @@ def upload_file_to_jira(
         return {"status": "success", "file": os.path.basename(file_path)}
 
     except JIRAError as e:
-        # JIRAError 는 HTTP 응답코드, 텍스트 등을 포함
-        print(f"❌ Jira API error while attaching file: {e.status_code} - {e.text}")
+        logger.error(
+            f"❌ Jira API error while attaching file: {e.status_code} - {e.text}"
+        )
         return {"status": "error", "code": e.status_code, "details": e.text}
 
     except Exception as e:
-        print(f"⚠️ Unexpected error: {e}")
+        logger.error(f"⚠️ Unexpected error: {e}")
         return {"status": "error", "details": str(e)}
 
 
