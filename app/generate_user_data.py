@@ -6,6 +6,7 @@ from faker import Faker
 
 from app.config import SAMPLE_DATA_PATH, SAMPLE_NUM_USERS
 from app.core.db_connection import get_db_connection
+from app.core.logger import logger
 
 
 # truncate string to meet mysql max length
@@ -31,6 +32,7 @@ def create_sample_data():
     oses = ["Windows 10", "Windows 11", "macOS 14", "iOS 17", "Android 13"]
 
     with open(SAMPLE_DATA_PATH, "w", newline="", encoding="utf-8") as csvfile:
+        logger.info(f"Creating sample data, path:{SAMPLE_DATA_PATH}")
         writer = csv.writer(csvfile)
         # csv header list
         writer.writerow(
@@ -110,11 +112,13 @@ def create_sample_data():
             )
             cnt = cnt + 1
             if cnt % 1000000 == 0:
-                print(f"{cnt} sample data has been created")
+                logger.info(f"{cnt} sample data has been created")
 
 
 # insert sample data to database
 def insert_sample_data_to_db():
+    logger.info("Inserting sample data into users table")
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -138,13 +142,13 @@ def insert_sample_data_to_db():
         # check warning messages
         warnings = cursor.fetchall()
         for w in warnings:
-            print(w)
+            logger.info(w)
 
         # check how many rows were inserted
-        print(cursor.rowcount)
+        logger.info(f"data insertion compolete, data count: {cursor.rowcount}")
 
         if cursor.rowcount != SAMPLE_NUM_USERS:
-            print(
+            logger.error(
                 f"Warning: Expected {SAMPLE_NUM_USERS} rows, but inserted {cursor.rowcount} rows."
             )
 
@@ -152,7 +156,7 @@ def insert_sample_data_to_db():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(e)
+        logger.info(f"Raised Exception: {e}")
 
 
 if __name__ == "__main__":
