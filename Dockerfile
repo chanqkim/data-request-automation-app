@@ -17,5 +17,5 @@ RUN groupadd -r app \
 
 # create app user and run container with app user
 USER app
-CMD ["sh", "-c", "chown -R app:app /app/logs /app/export_file_path && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
