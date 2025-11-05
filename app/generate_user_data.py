@@ -111,7 +111,7 @@ def create_sample_data():
                 ]
             )
             cnt = cnt + 1
-            if cnt % 1000000 == 0:
+            if cnt % 100000 == 0:
                 logger.info(f"{cnt} sample data has been created")
 
 
@@ -132,7 +132,7 @@ def insert_sample_data_to_db():
         LINES TERMINATED BY '\n'
         IGNORE 1 LINES
         (username, password_hash, email, first_name, last_name, gender,
-        birth_date, country, city, language, is_active,
+        birth_date, country, city, languages, is_active,
         user_role, created_at, updated_at, last_login_at, device_type, os);
         """
 
@@ -160,5 +160,5 @@ def insert_sample_data_to_db():
 
 
 if __name__ == "__main__":
-    create_sample_data()
+    # create_sample_data()
     insert_sample_data_to_db()
