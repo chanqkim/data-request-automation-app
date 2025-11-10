@@ -206,7 +206,7 @@ def normalize_user_id_column(df: pd.DataFrame) -> pd.DataFrame:
     # check existing columns and rename if matches
     for col in df.columns:
         if col in candidates:
-            df.rename(columns={col: "username"})
+            df = df.rename(columns={col: "username"})
 
     # return original df
     return df
