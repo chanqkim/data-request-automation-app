@@ -20,7 +20,7 @@ from app.config import (
     JIRA_TICKETS_PER_PAGE,
     SLACK_WEBHOOK_URL,
 )
-from app.core.db_connection import get_db_connection
+from app.core.db_connection import get_db_connection, save_log_to_mysql
 from app.core.decorators import is_logged_in
 from app.core.logger import logger
 from app.core.templates import templates
@@ -442,6 +442,18 @@ async def get_data_from_query(request: Request, ticket_key: str):
         )
         send_slack_message(SLACK_WEBHOOK_URL, comment_text)
         logger.info(f"sent slack message for ticket {ticket_key}")
+
+        # saving log to MySQL
+        session_id = request.cookies.get("session_id")
+        if not session_id:
+            raise ValueError("No session_id found in request cookies.")
+        jira_email, _ = get_email_jira_token_value(session_id)
+
+        save_log_to_mysql(
+            extractor_id=jira_email,
+            ticket_key=ticket_key,
+            file_path=compressed_file_path,
+        )
 
 
 # create random password
