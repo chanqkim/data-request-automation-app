@@ -74,10 +74,10 @@ def create_sample_data():
             email = fake.unique.free_email()
             password_hash = "hashedpwd" + str(random.randint(1, 999999))
             birth_date = fake.date_of_birth(minimum_age=18, maximum_age=80)
-            country = fake.country()
-            city = fake.city()
+            country = truncate(fake.country(), 50)
+            city = truncate(fake.city(), 50)
             languages = fake.language_code()
-            is_active = random.choice([True, False])
+            is_active = random.choice([0, 1])
             user_role = random.choice(roles)
             created_at = format_datetime(fake.date_time_this_decade())
             updated_at = format_datetime(
@@ -87,7 +87,7 @@ def create_sample_data():
                 fake.date_time_between(start_date=created_at, end_date=updated_at)
             )
             device_type = random.choice(devices)
-            os_choice = random.choice(oses)
+            os = random.choice(oses)
 
             writer.writerow(
                 [
@@ -107,7 +107,7 @@ def create_sample_data():
                     updated_at,
                     last_login_at,
                     device_type,
-                    os_choice,
+                    os,
                 ]
             )
             cnt = cnt + 1
@@ -145,11 +145,13 @@ def insert_sample_data_to_db():
             logger.info(w)
 
         # check how many rows were inserted
-        logger.info(f"data insertion compolete, data count: {cursor.rowcount}")
+        cursor.execute("select count(*) from users;")
+        rowcount = cursor.fetchall()[0][0]
+        logger.info(f"data insertion complete, data count: {rowcount}")
 
-        if cursor.rowcount != SAMPLE_NUM_USERS:
+        if rowcount != SAMPLE_NUM_USERS:
             logger.error(
-                f"Warning: Expected {SAMPLE_NUM_USERS} rows, but inserted {cursor.rowcount} rows."
+                f"Warning: Expected {SAMPLE_NUM_USERS} rows, but inserted {rowcount} rows."
             )
 
         conn.commit()
@@ -160,5 +162,5 @@ def insert_sample_data_to_db():
 
 
 if __name__ == "__main__":
-    # create_sample_data()
+    create_sample_data()
     insert_sample_data_to_db()
